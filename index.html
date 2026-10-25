@@ -411,37 +411,70 @@ function sndMile(){ [784,988,1175,1568].forEach(function(f,i){ tone(f,.18,'squar
 function sndEnd(){ [523,659,784,1047,784,1047,1319].forEach(function(f,i){ tone(f,.22,'triangle',.12,i*.11); }); }
 
 
-/* ---------- Nhạc nền (tự tạo bằng WebAudio, lặp 4 ô nhịp, nhanh dần ở 10 giây cuối) ---------- */
-var mus = { g:null, timer:0, step:0, next:0, bpm:118, noise:null };
-var MEL = [659.25,783.99,659.25,523.25, 587.33,659.25,783.99,0,
-           880,783.99,659.25,783.99, 659.25,523.25,659.25,0,
-           698.46,880,698.46,523.25, 587.33,698.46,880,0,
-           783.99,659.25,587.33,659.25, 783.99,987.77,1046.5,0];
-var BASS = [130.81,110,87.31,98.00];
-function mnote(f,t,d,type,g){
+/* ---------- Nhạc nền (tự tạo bằng WebAudio: chiptune sôi động, trống + bass + arpeggio, lặp 4 ô nhịp, dồn dập ở 10 giây cuối) ---------- */
+var mus = { g:null, timer:0, step:0, next:0, bpm:150, noise:null };
+var BPM_NORMAL = 150, BPM_HURRY = 174;
+/* 4 ô nhịp x 8 nốt: C - G - Am - F(G) */
+var MEL = [659.25,659.25,783.99,659.25, 1046.5,0,783.99,659.25,
+           587.33,587.33,783.99,587.33, 987.77,0,783.99,587.33,
+           659.25,659.25,880,659.25,    1046.5,0,880,659.25,
+           698.46,880,1046.5,880,       783.99,987.77,1174.66,1318.5];
+var BASS = [130.81,98.00,110.00,87.31];
+var CHORD = [[261.63,329.63,392.00],[246.94,293.66,392.00],[261.63,329.63,440.00],[261.63,349.23,440.00]];
+var ARP = [0,1,2,1,0,1,2,1];
+var BASSPAT = [1,1,2,1,1,1,2,1];
+function mnote(f,t,d,type,g,dest){
   var a = AC, o = a.createOscillator(), v = a.createGain();
   o.type = type; o.frequency.setValueAtTime(f,t);
-  v.gain.setValueAtTime(0.0001,t); v.gain.exponentialRampToValueAtTime(g,t+.012);
+  v.gain.setValueAtTime(0.0001,t); v.gain.exponentialRampToValueAtTime(g,t+.008);
   v.gain.exponentialRampToValueAtTime(.0001,t+d);
-  o.connect(v); v.connect(mus.g); o.start(t); o.stop(t+d+.03);
+  o.connect(v); v.connect(dest||mus.g); o.start(t); o.stop(t+d+.03);
 }
-function mhat(t){
+function mnoise(){
   var a = AC;
   if (!mus.noise){
-    var len = Math.floor(a.sampleRate*.05), b = a.createBuffer(1,len,a.sampleRate), ch = b.getChannelData(0);
+    var len = Math.floor(a.sampleRate*.25), b = a.createBuffer(1,len,a.sampleRate), ch = b.getChannelData(0);
     for (var i=0;i<len;i++) ch[i] = Math.random()*2-1;
     mus.noise = b;
   }
-  var src = a.createBufferSource(), hp = a.createBiquadFilter(), v = a.createGain();
-  src.buffer = mus.noise; hp.type = 'highpass'; hp.frequency.value = 7000;
-  v.gain.setValueAtTime(.05,t); v.gain.exponentialRampToValueAtTime(.0001,t+.04);
-  src.connect(hp); hp.connect(v); v.connect(mus.g); src.start(t); src.stop(t+.05);
+  return mus.noise;
+}
+function mhat(t,g){
+  var a = AC, src = a.createBufferSource(), hp = a.createBiquadFilter(), v = a.createGain();
+  src.buffer = mnoise(); hp.type = 'highpass'; hp.frequency.value = 7500;
+  v.gain.setValueAtTime(g,t); v.gain.exponentialRampToValueAtTime(.0001,t+.045);
+  src.connect(hp); hp.connect(v); v.connect(mus.g); src.start(t); src.stop(t+.06);
+}
+function mkick(t){
+  var a = AC, o = a.createOscillator(), v = a.createGain();
+  o.type = 'sine'; o.frequency.setValueAtTime(170,t); o.frequency.exponentialRampToValueAtTime(45,t+.12);
+  v.gain.setValueAtTime(.32,t); v.gain.exponentialRampToValueAtTime(.0001,t+.16);
+  o.connect(v); v.connect(mus.g); o.start(t); o.stop(t+.2);
+}
+function msnare(t){
+  var a = AC, src = a.createBufferSource(), bp = a.createBiquadFilter(), v = a.createGain();
+  src.buffer = mnoise(); bp.type = 'bandpass'; bp.frequency.value = 2200; bp.Q.value = .8;
+  v.gain.setValueAtTime(.17,t); v.gain.exponentialRampToValueAtTime(.0001,t+.13);
+  src.connect(bp); bp.connect(v); v.connect(mus.g); src.start(t); src.stop(t+.2);
+  mnote(190,t,.07,'triangle',.08);
 }
 function musicStep(i,t,d){
   var bar = Math.floor(i/8), s = i%8, m = MEL[i];
-  if (m){ mnote(m,t,d*1.7,'triangle',.075); mnote(m*2,t,d*.6,'sine',.012); }
-  if (s%2 === 0){ var r = BASS[bar]*2; mnote(s%4 === 0 ? r : r*1.5, t, d*1.8, 'triangle', .1); }
-  if (s%2 === 1) mhat(t);
+  /* giai điệu chính: sáng, vang */
+  if (m){ mnote(m,t,d*1.5,'square',.034); mnote(m,t,d*1.6,'triangle',.06); mnote(m*2,t,d*.5,'sine',.012); }
+  /* arpeggio lấp lánh */
+  var ch = CHORD[bar]; if (bar === 3 && s >= 4) ch = CHORD[1];
+  mnote(ch[ARP[s]]*2, t, d*.9, 'triangle', .035);
+  /* bass chạy đều từng nốt */
+  var root = (bar === 3 && s >= 4) ? BASS[1] : BASS[bar];
+  var bf = root * BASSPAT[s];
+  mnote(bf, t, d*.85, 'triangle', .13); mnote(bf, t, d*.6, 'square', .03);
+  /* trống */
+  if (s === 0 || s === 4 || (bar === 3 && s === 7) || (bar % 2 === 1 && s === 3)) mkick(t);
+  if (s === 2 || s === 6) msnare(t);
+  mhat(t, s%2 ? .06 : .035);
+  /* dồn trống ở cuối vòng */
+  if (bar === 3 && s === 7) msnare(t + d*.5);
 }
 function musicSched(){
   if (!AC || !mus.g) return;
@@ -455,7 +488,7 @@ function musicStart(){
   var a = ac(); if (!a) return;
   musicStop();
   var g = a.createGain(); g.gain.value = muted ? 0 : 1; g.connect(a.destination);
-  mus.g = g; mus.step = 0; mus.bpm = 118; mus.next = a.currentTime + .08;
+  mus.g = g; mus.step = 0; mus.bpm = BPM_NORMAL; mus.next = a.currentTime + .08;
   mus.timer = setInterval(musicSched, 50); musicSched();
 }
 function musicStop(){
@@ -698,7 +731,7 @@ function setClock(rem){
   clockNum.innerHTML = s + '<small>giây</small>';
   clockBar.style.transform = 'scaleX('+Math.max(0, rem/TOTAL)+')';
   topbar.classList.toggle('hurry', rem <= 10);
-  mus.bpm = rem <= 10 ? 140 : 118;
+  mus.bpm = rem <= 10 ? BPM_HURRY : BPM_NORMAL;
   if (s !== lastSec){
     lastSec = s;
     if (s <= 5 && s > 0) tone(s === 1 ? 988 : 784, .09, 'square', .06);
