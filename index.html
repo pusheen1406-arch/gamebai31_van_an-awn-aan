@@ -410,6 +410,62 @@ function sndBad(){ tone(170, .2, 'sawtooth', .07); tone(120, .24, 'sawtooth', .0
 function sndMile(){ [784,988,1175,1568].forEach(function(f,i){ tone(f,.18,'square',.06,i*.07); }); }
 function sndEnd(){ [523,659,784,1047,784,1047,1319].forEach(function(f,i){ tone(f,.22,'triangle',.12,i*.11); }); }
 
+
+/* ---------- Nhạc nền (tự tạo bằng WebAudio, lặp 4 ô nhịp, nhanh dần ở 10 giây cuối) ---------- */
+var mus = { g:null, timer:0, step:0, next:0, bpm:118, noise:null };
+var MEL = [659.25,783.99,659.25,523.25, 587.33,659.25,783.99,0,
+           880,783.99,659.25,783.99, 659.25,523.25,659.25,0,
+           698.46,880,698.46,523.25, 587.33,698.46,880,0,
+           783.99,659.25,587.33,659.25, 783.99,987.77,1046.5,0];
+var BASS = [130.81,110,87.31,98.00];
+function mnote(f,t,d,type,g){
+  var a = AC, o = a.createOscillator(), v = a.createGain();
+  o.type = type; o.frequency.setValueAtTime(f,t);
+  v.gain.setValueAtTime(0.0001,t); v.gain.exponentialRampToValueAtTime(g,t+.012);
+  v.gain.exponentialRampToValueAtTime(.0001,t+d);
+  o.connect(v); v.connect(mus.g); o.start(t); o.stop(t+d+.03);
+}
+function mhat(t){
+  var a = AC;
+  if (!mus.noise){
+    var len = Math.floor(a.sampleRate*.05), b = a.createBuffer(1,len,a.sampleRate), ch = b.getChannelData(0);
+    for (var i=0;i<len;i++) ch[i] = Math.random()*2-1;
+    mus.noise = b;
+  }
+  var src = a.createBufferSource(), hp = a.createBiquadFilter(), v = a.createGain();
+  src.buffer = mus.noise; hp.type = 'highpass'; hp.frequency.value = 7000;
+  v.gain.setValueAtTime(.05,t); v.gain.exponentialRampToValueAtTime(.0001,t+.04);
+  src.connect(hp); hp.connect(v); v.connect(mus.g); src.start(t); src.stop(t+.05);
+}
+function musicStep(i,t,d){
+  var bar = Math.floor(i/8), s = i%8, m = MEL[i];
+  if (m){ mnote(m,t,d*1.7,'triangle',.075); mnote(m*2,t,d*.6,'sine',.012); }
+  if (s%2 === 0){ var r = BASS[bar]*2; mnote(s%4 === 0 ? r : r*1.5, t, d*1.8, 'triangle', .1); }
+  if (s%2 === 1) mhat(t);
+}
+function musicSched(){
+  if (!AC || !mus.g) return;
+  while (mus.next < AC.currentTime + .3){
+    var d = 60/mus.bpm/2;
+    musicStep(mus.step, mus.next, d);
+    mus.next += d; mus.step = (mus.step+1)%32;
+  }
+}
+function musicStart(){
+  var a = ac(); if (!a) return;
+  musicStop();
+  var g = a.createGain(); g.gain.value = muted ? 0 : 1; g.connect(a.destination);
+  mus.g = g; mus.step = 0; mus.bpm = 118; mus.next = a.currentTime + .08;
+  mus.timer = setInterval(musicSched, 50); musicSched();
+}
+function musicStop(){
+  clearInterval(mus.timer);
+  if (mus.g && AC){
+    var g = mus.g; g.gain.setTargetAtTime(0, AC.currentTime, .08);
+    setTimeout(function(){ try { g.disconnect(); } catch(_){} }, 700);
+  }
+  mus.g = null;
+}
 /* ---------- Hũ ---------- */
 function jarHTML(v, keyHint, interactive){
   var d1 = rand(0,3).toFixed(1), d2 = rand(0,3).toFixed(1);
@@ -642,6 +698,7 @@ function setClock(rem){
   clockNum.innerHTML = s + '<small>giây</small>';
   clockBar.style.transform = 'scaleX('+Math.max(0, rem/TOTAL)+')';
   topbar.classList.toggle('hurry', rem <= 10);
+  mus.bpm = rem <= 10 ? 140 : 118;
   if (s !== lastSec){
     lastSec = s;
     if (s <= 5 && s > 0) tone(s === 1 ? 988 : 784, .09, 'square', .06);
@@ -656,7 +713,7 @@ function loop(){
 }
 async function startRound(){
   var token = ++gameToken;
-  running = false; cancelAnimationFrame(rafId);
+  running = false; cancelAnimationFrame(rafId); musicStop();
   show('game'); buildLanes();
   topbar.classList.remove('hurry'); lastSec = TOTAL+1; setClock(TOTAL);
   $('#timeup').hidden = true;
@@ -673,13 +730,14 @@ async function startRound(){
   tone(880, .3, 'triangle', .15);
   await sleep(480); if (token !== gameToken) return;
   count.hidden = true;
+  musicStart();
   running = true; t0 = performance.now();
   teams.forEach(nextWord);
   rafId = requestAnimationFrame(loop);
 }
 async function finish(){
   if (!running) return;
-  running = false; cancelAnimationFrame(rafId);
+  running = false; cancelAnimationFrame(rafId); musicStop();
   setClock(0);
   var token = gameToken;
   $('#timeup').hidden = false;
@@ -747,9 +805,10 @@ function confetti(){
 /* ---------- Nút ---------- */
 $('#btn-start').addEventListener('click', function(){ ac(); startRound(); });
 $('#btn-again').addEventListener('click', function(){ cancelAnimationFrame(cRaf); cctx.clearRect(0,0,cvs.width,cvs.height); ac(); startRound(); });
-$('#btn-home').addEventListener('click', function(){ cancelAnimationFrame(cRaf); cctx.clearRect(0,0,cvs.width,cvs.height); gameToken++; show('start'); });
+$('#btn-home').addEventListener('click', function(){ cancelAnimationFrame(cRaf); cctx.clearRect(0,0,cvs.width,cvs.height); gameToken++; musicStop(); show('start'); });
 $('#btn-mute').addEventListener('click', function(e){
   muted = !muted; e.currentTarget.classList.toggle('is-off', muted);
+  if (mus.g && AC) mus.g.gain.setTargetAtTime(muted ? 0 : 1, AC.currentTime, .03);
 });
 document.addEventListener('keydown', function(e){
   if (!running || e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
